@@ -1,0 +1,1870 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EC4012 — Wheel Motor Controller (UART Bridge)</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+    :root {
+      --bg:        #0a0e1a;
+      --surface:   #111827;
+      --card:      rgba(255,255,255,0.05);
+      --border:    rgba(255,255,255,0.08);
+      --green:     #22c55e;
+      --blue:      #3b82f6;
+      --orange:    #f59e0b;
+      --red:       #ef4444;
+      --gray:      #6b7280;
+      --cyan:      #06b6d4;
+      --purple:    #a855f7;
+      --text:      #f1f5f9;
+      --text-dim:  #94a3b8;
+      --mono:      'JetBrains Mono', monospace;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* Background grid */
+    body::before {
+      content: '';
+      position: fixed; inset: 0;
+      background-image:
+        linear-gradient(rgba(59,130,246,0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(59,130,246,0.04) 1px, transparent 1px);
+      background-size: 40px 40px;
+      pointer-events: none;
+    }
+
+    /* ===== Header ===== */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(17,24,39,0.8);
+      backdrop-filter: blur(12px);
+      position: sticky; top: 0; z-index: 100;
+    }
+    .logo {
+      display: flex; align-items: center; gap: 10px;
+      font-size: 18px; font-weight: 700;
+    }
+    .logo-icon {
+      width: 32px; height: 32px; border-radius: 8px;
+      background: linear-gradient(135deg, var(--blue), var(--purple));
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px;
+    }
+    .badge {
+      font-size: 11px; font-weight: 500; padding: 3px 8px;
+      border-radius: 20px; background: rgba(59,130,246,0.15);
+      color: var(--blue); border: 1px solid rgba(59,130,246,0.3);
+    }
+    .status-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--gray); display: inline-block;
+      transition: background .3s;
+    }
+    .status-dot.connected { background: var(--green); box-shadow: 0 0 8px var(--green); animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:.5 } }
+
+    /* ===== Main Layout ===== */
+    .main {
+      display: grid;
+      grid-template-columns: 310px 1fr 300px;
+      grid-template-rows: auto 1fr;
+      gap: 16px;
+      padding: 16px 24px;
+      height: calc(100vh - 65px);
+    }
+
+    /* ===== Card ===== */
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 20px;
+      backdrop-filter: blur(8px);
+    }
+    .card-title {
+      font-size: 11px; font-weight: 600; letter-spacing: 1px;
+      text-transform: uppercase; color: var(--text-dim);
+      margin-bottom: 16px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .card-title::before {
+      content: ''; width: 3px; height: 14px; border-radius: 2px;
+      background: linear-gradient(var(--blue), var(--purple));
+    }
+
+    /* ===== Connection Panel ===== */
+    .conn-panel { grid-column: 1; grid-row: 1; }
+
+    .conn-btn {
+      width: 100%; padding: 10px 16px; border-radius: 10px; border: none;
+      font-family: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+      transition: all .2s;
+    }
+    .conn-btn.connect {
+      background: linear-gradient(135deg, var(--blue), var(--purple));
+      color: #fff;
+    }
+    .conn-btn.connect:hover { opacity: .85; transform: translateY(-1px); }
+    .conn-btn.disconnect {
+      background: rgba(239,68,68,0.15); color: var(--red);
+      border: 1px solid rgba(239,68,68,0.3);
+    }
+    .conn-btn.disconnect:hover { background: rgba(239,68,68,0.25); }
+
+    .field-group { margin-bottom: 12px; }
+    .field-label { font-size: 11px; color: var(--text-dim); margin-bottom: 6px; display: block; }
+    .field-input {
+      width: 100%; padding: 8px 12px; border-radius: 8px;
+      background: rgba(0,0,0,0.3); border: 1px solid var(--border);
+      color: var(--text); font-family: var(--mono); font-size: 13px;
+      outline: none; transition: border-color .2s;
+    }
+    .field-input:focus { border-color: var(--blue); }
+
+    .info-row {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px;
+    }
+    .info-row:last-child { border-bottom: none; }
+    .info-val { font-family: var(--mono); color: var(--cyan); }
+
+    /* ===== Center Control ===== */
+    .control-panel { grid-column: 2; grid-row: 1 / 3; display: flex; flex-direction: column; gap: 16px; }
+
+    /* Gauge */
+    .gauge-wrap {
+      display: flex; flex-direction: column; align-items: center;
+      padding: 24px;
+    }
+    .gauge-svg { width: 200px; height: 200px; }
+    .gauge-track { fill: none; stroke: rgba(255,255,255,0.06); stroke-width: 16; stroke-linecap: round; }
+    .gauge-fill {
+      fill: none; stroke-width: 16; stroke-linecap: round;
+      transform-origin: center;
+      transform: rotate(-220deg);
+      transition: stroke-dashoffset .3s, stroke .3s;
+    }
+    .gauge-center { text-anchor: middle; dominant-baseline: middle; }
+    .gauge-speed { font-size: 36px; font-weight: 700; font-family: var(--mono); fill: var(--text); }
+    .gauge-label { font-size: 12px; fill: var(--text-dim); }
+    .gauge-dir { font-size: 14px; font-weight: 600; }
+
+    /* Control Buttons Grid */
+    .ctrl-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      padding: 0 20px;
+    }
+    .ctrl-btn {
+      padding: 14px 10px; border-radius: 12px; border: 2px solid transparent;
+      font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+      display: flex; flex-direction: column; align-items: center; gap: 6px;
+      transition: all .15s; user-select: none; position: relative;
+      overflow: hidden;
+    }
+    .ctrl-btn:active { transform: scale(0.95); }
+    .ctrl-btn .btn-icon { font-size: 24px; }
+    .ctrl-btn.active { border-color: currentColor; }
+
+    .btn-forward {
+      background: rgba(34,197,94,0.12); color: var(--green);
+    }
+    .btn-forward:hover, .btn-forward.active {
+      background: rgba(34,197,94,0.25); box-shadow: 0 0 20px rgba(34,197,94,0.3);
+    }
+    .btn-backward {
+      background: rgba(59,130,246,0.12); color: var(--blue);
+    }
+    .btn-backward:hover, .btn-backward.active {
+      background: rgba(59,130,246,0.25); box-shadow: 0 0 20px rgba(59,130,246,0.3);
+    }
+    .btn-hold {
+      background: rgba(245,158,11,0.12); color: var(--orange);
+    }
+    .btn-hold:hover, .btn-hold.active {
+      background: rgba(245,158,11,0.25); box-shadow: 0 0 20px rgba(245,158,11,0.3);
+    }
+    .btn-ramp-up {
+      background: rgba(168,85,247,0.12); color: var(--purple);
+      font-size: 12px;
+    }
+    .btn-ramp-up:hover { background: rgba(168,85,247,0.25); }
+    .btn-ramp-dn {
+      background: rgba(168,85,247,0.12); color: var(--purple);
+      font-size: 12px;
+    }
+    .btn-ramp-dn:hover { background: rgba(168,85,247,0.25); }
+
+    /* Direction invert banner */
+    .dir-invert-bar {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 8px 14px; border-radius: 10px; margin: 0 20px;
+      background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.2);
+      font-size: 12px;
+    }
+    .dir-invert-bar.inverted {
+      background: rgba(239,68,68,0.12); border-color: rgba(239,68,68,0.35);
+    }
+    .invert-toggle {
+      padding: 5px 14px; border-radius: 8px; border: 1px solid rgba(245,158,11,0.4);
+      background: rgba(245,158,11,0.15); color: var(--orange);
+      font-family: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
+      transition: all .2s;
+    }
+    .invert-toggle:hover { background: rgba(245,158,11,0.3); }
+    .invert-toggle.on {
+      background: rgba(239,68,68,0.2); border-color: rgba(239,68,68,0.5);
+      color: var(--red);
+    }
+
+    .btn-stop {
+      background: rgba(239,68,68,0.18); color: var(--red);
+      border: 2px solid rgba(239,68,68,0.4) !important;
+      grid-column: 2; grid-row: 2;
+      font-size: 15px !important;
+      box-shadow: 0 0 0 0 rgba(239,68,68,0.4);
+      transition: all .15s;
+    }
+    .btn-stop:hover {
+      background: rgba(239,68,68,0.35);
+      box-shadow: 0 0 24px rgba(239,68,68,0.5);
+      transform: scale(1.05);
+    }
+    .btn-stop.active {
+      background: rgba(239,68,68,0.45);
+      box-shadow: 0 0 30px rgba(239,68,68,0.7);
+      animation: stopPulse .8s infinite;
+    }
+    @keyframes stopPulse {
+      0%,100% { box-shadow: 0 0 20px rgba(239,68,68,0.5); }
+      50%      { box-shadow: 0 0 40px rgba(239,68,68,0.9); }
+    }
+
+    /* Speed Slider */
+    .speed-wrap { padding: 0 20px; }
+    .speed-row { display: flex; align-items: center; gap: 12px; }
+    .speed-slider {
+      -webkit-appearance: none; appearance: none;
+      flex: 1; height: 6px; border-radius: 3px; outline: none;
+      background: linear-gradient(to right, var(--blue) 0%, var(--blue) var(--pct, 50%), rgba(255,255,255,0.1) var(--pct, 50%));
+      cursor: pointer;
+    }
+    .speed-slider::-webkit-slider-thumb {
+      -webkit-appearance: none; width: 18px; height: 18px;
+      border-radius: 50%; background: #fff; cursor: pointer;
+      box-shadow: 0 0 6px rgba(59,130,246,0.6);
+    }
+    .speed-val {
+      font-family: var(--mono); font-size: 18px; font-weight: 700;
+      color: var(--text); min-width: 48px; text-align: right;
+    }
+    .speed-labels { display: flex; justify-content: space-between; font-size: 10px; color: var(--text-dim); margin-top: 4px; }
+
+    /* Position display */
+    .pos-grid {
+      display: grid; grid-template-columns: 1fr 1fr 1fr;
+      gap: 10px; padding: 0 20px;
+    }
+    .pos-card {
+      background: rgba(0,0,0,0.3); border: 1px solid var(--border);
+      border-radius: 10px; padding: 12px; text-align: center;
+    }
+    .pos-card .val {
+      font-family: var(--mono); font-size: 22px; font-weight: 700;
+      color: var(--cyan);
+    }
+    .pos-card .lbl { font-size: 10px; color: var(--text-dim); margin-top: 4px; }
+
+    /* Angle (position mode) control */
+    .goal-wrap { border-top: 1px solid var(--border); padding-top: 14px; }
+    .goal-row { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+    .goal-row .field-input { width: 90px; text-align: right; }
+    .goal-go {
+      flex: 1; padding: 9px 12px; border-radius: 10px; border: 1px solid rgba(6,182,212,0.4);
+      background: rgba(6,182,212,0.15); color: var(--cyan); font-family: inherit;
+      font-size: 13px; font-weight: 600; cursor: pointer; transition: all .15s;
+    }
+    .goal-go:hover { background: rgba(6,182,212,0.3); box-shadow: 0 0 16px rgba(6,182,212,0.3); }
+    .goal-presets { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; margin-top: 10px; }
+    .goal-presets button {
+      padding: 7px 0; border-radius: 8px; border: 1px solid var(--border);
+      background: rgba(255,255,255,0.04); color: var(--text); font-family: var(--mono);
+      font-size: 12px; cursor: pointer; transition: all .15s;
+    }
+    .goal-presets button:hover { background: rgba(6,182,212,0.18); border-color: rgba(6,182,212,0.4); }
+    .goal-status {
+      display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 12px;
+    }
+    .goal-status .pos-card .val { font-size: 16px; }
+    .goal-state { margin-top: 8px; font-size: 12px; text-align: center; color: var(--text-dim); min-height: 18px; }
+    .goal-state.moving { color: var(--orange); }
+    .goal-state.arrived { color: var(--green); }
+    .goal-state.warn { color: var(--red); }
+
+    /* ===== Right Panel — Packet Log ===== */
+    .log-panel { grid-column: 3; grid-row: 1 / 3; display: flex; flex-direction: column; }
+    .log-box {
+      flex: 1; overflow-y: auto; font-family: var(--mono); font-size: 11px;
+      line-height: 1.8; padding: 12px; background: rgba(0,0,0,0.3);
+      border-radius: 10px; border: 1px solid var(--border);
+      max-height: calc(100vh - 240px);
+    }
+    .log-box::-webkit-scrollbar { width: 4px; }
+    .log-box::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    .log-entry { margin-bottom: 6px; }
+    .log-time { color: var(--text-dim); margin-right: 6px; }
+    .log-tx { color: var(--green); }
+    .log-rx { color: var(--blue); }
+    .log-err { color: var(--red); }
+    .log-info { color: var(--orange); }
+    .log-hex { color: var(--text); background: rgba(255,255,255,0.05); padding: 1px 4px; border-radius: 3px; }
+    .log-desc { color: var(--purple); margin-left: 6px; font-size: 10px; }
+
+    .log-controls { display: flex; gap: 8px; margin-top: 10px; }
+    .log-btn {
+      flex: 1; padding: 7px; border-radius: 8px; border: 1px solid var(--border);
+      background: transparent; color: var(--text-dim); font-family: inherit;
+      font-size: 12px; cursor: pointer; transition: all .2s;
+    }
+    .log-btn:hover { background: var(--card); color: var(--text); }
+
+    /* ===== Stats bottom ===== */
+    .stats-row { grid-column: 1; grid-row: 2; }
+    .stat-item {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 13px;
+    }
+    .stat-item:last-child { border-bottom: none; }
+    .stat-val { font-family: var(--mono); }
+    .stat-val.green { color: var(--green); }
+    .stat-val.blue  { color: var(--blue); }
+    .stat-val.orange{ color: var(--orange); }
+    .stat-val.red   { color: var(--red); }
+
+    /* Ripple */
+    .ctrl-btn::after {
+      content: ''; position: absolute; border-radius: 50%;
+      background: rgba(255,255,255,0.2); width: 0; height: 0;
+      top: 50%; left: 50%; transform: translate(-50%,-50%);
+      transition: width .3s, height .3s, opacity .3s; opacity: 0;
+    }
+    .ctrl-btn:active::after { width: 200px; height: 200px; opacity: 0; }
+
+    /* No serial warning */
+    .no-serial {
+      background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.3);
+      border-radius: 10px; padding: 10px 14px; font-size: 12px;
+      color: var(--orange); margin-bottom: 12px; display: none;
+    }
+
+    /* ===== Motor ID Scan Section ===== */
+    .conn-panel::-webkit-scrollbar { width: 4px; }
+    .conn-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    .scan-box {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 10px 12px;
+      margin-bottom: 12px;
+      transition: border-color .2s;
+    }
+    .scan-box:hover {
+      border-color: rgba(6,182,212,0.3);
+    }
+    .scan-preset-btn {
+      padding: 5px 0;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.04);
+      color: var(--text-dim);
+      font-family: var(--mono);
+      font-size: 11px;
+      cursor: pointer;
+      transition: all .15s;
+      text-align: center;
+    }
+    .scan-preset-btn:hover {
+      background: rgba(6,182,212,0.12);
+      color: var(--cyan);
+      border-color: rgba(6,182,212,0.3);
+    }
+    .scan-preset-btn.active {
+      background: rgba(6,182,212,0.2);
+      color: var(--cyan);
+      border-color: rgba(6,182,212,0.5);
+      font-weight: 600;
+    }
+    .scan-btn-start {
+      flex: 1;
+      padding: 8px 12px;
+      border-radius: 8px;
+      border: 1px solid rgba(6,182,212,0.4);
+      background: rgba(6,182,212,0.15);
+      color: var(--cyan);
+      font-family: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all .2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+    .scan-btn-start:hover {
+      background: rgba(6,182,212,0.28);
+      box-shadow: 0 0 14px rgba(6,182,212,0.3);
+    }
+    .scan-btn-stop {
+      flex: 1;
+      padding: 8px 12px;
+      border-radius: 8px;
+      border: 1px solid rgba(239,68,68,0.5);
+      background: rgba(239,68,68,0.2);
+      color: var(--red);
+      font-family: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all .2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      animation: stopPulse .8s infinite;
+    }
+    .motor-chip {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 8px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: rgba(0,0,0,0.35);
+      font-size: 11px;
+      transition: all .15s;
+      cursor: pointer;
+    }
+    .motor-chip:hover {
+      border-color: rgba(6,182,212,0.4);
+      background: rgba(6,182,212,0.08);
+      transform: translateX(2px);
+    }
+    .motor-chip.current-active {
+      border-color: rgba(34,197,94,0.5);
+      background: rgba(34,197,94,0.12);
+      box-shadow: 0 0 10px rgba(34,197,94,0.15);
+    }
+    #scanResultsList::-webkit-scrollbar { width: 4px; }
+    #scanResultsList::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  </style>
+</head>
+<body>
+
+<!-- Header -->
+<header>
+  <div class="logo">
+    <div class="logo-icon">🏎️</div>
+    <span>EC4012</span>
+    <span class="badge">Wheel Motor Controller</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:12px;font-size:13px;color:var(--text-dim)">
+    <span class="status-dot" id="statusDot"></span>
+    <span id="statusText">Chưa kết nối</span>
+  </div>
+</header>
+
+<div class="main">
+
+  <!-- ===== LEFT: Connection Panel ===== -->
+  <div class="card conn-panel" style="overflow-y:auto">
+    <div class="card-title">Kết Nối</div>
+
+    <div id="noSerial" class="no-serial" style="display:none">
+      ⚠️ Trình duyệt không hỗ trợ Web Serial API.<br>Dùng Chrome hoặc Edge.
+    </div>
+
+    <div class="field-group">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        <label class="field-label" style="margin-bottom:0">Motor ID (hex)</label>
+        <button onclick="sendPing()" style="background:none;border:none;color:var(--cyan);font-size:11px;cursor:pointer;padding:0;text-decoration:underline" title="Gửi gói Ping tới Motor ID hiện tại">
+          🔍 Ping ID
+        </button>
+      </div>
+      <input class="field-input" id="motorId" value="01" maxlength="2" style="font-family:var(--mono);text-transform:uppercase;font-weight:600">
+    </div>
+
+    <!-- Khối Quét ID Động Cơ -->
+    <div class="scan-box" id="scanSection">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div style="display:flex;align-items:center;gap:6px">
+          <span style="font-size:10px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.5px">🔍 Quét ID Động Cơ</span>
+          <span class="badge" style="font-size:9px;padding:1px 6px">Bus Scan</span>
+        </div>
+        <span id="scanFoundCount" style="font-family:var(--mono);font-size:10px;color:var(--cyan);font-weight:600">0 tìm thấy</span>
+      </div>
+
+      <!-- Range Presets -->
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-bottom:8px">
+        <button type="button" class="scan-preset-btn active" id="presetBtn1" onclick="setScanPreset(1, 16, this)">1~16</button>
+        <button type="button" class="scan-preset-btn" id="presetBtn2" onclick="setScanPreset(1, 32, this)">1~32</button>
+        <button type="button" class="scan-preset-btn" id="presetBtn3" onclick="setScanPreset(1, 253, this)">1~253</button>
+        <button type="button" class="scan-preset-btn" id="presetBtnCustom" onclick="toggleCustomRange(this)">Tùy chọn</button>
+      </div>
+
+      <!-- Custom Range inputs -->
+      <div id="scanCustomRange" style="display:none;background:rgba(0,0,0,0.25);border:1px dashed var(--border);border-radius:8px;padding:6px 8px;margin-bottom:8px">
+        <div style="display:flex;gap:6px;align-items:center;justify-content:space-between;font-size:11px;color:var(--text-dim)">
+          <div style="display:flex;gap:4px;align-items:center">
+            <span>Từ:</span>
+            <input class="field-input" id="scanFromId" value="01" maxlength="2" style="width:42px;text-align:center;padding:4px;font-size:11px;text-transform:uppercase">
+          </div>
+          <div style="display:flex;gap:4px;align-items:center">
+            <span>Đến:</span>
+            <input class="field-input" id="scanToId" value="20" maxlength="2" style="width:42px;text-align:center;padding:4px;font-size:11px;text-transform:uppercase">
+          </div>
+          <span style="font-size:10px;opacity:0.7">(hex)</span>
+        </div>
+      </div>
+
+      <!-- Action buttons -->
+      <div style="display:flex;gap:6px;align-items:center">
+        <button type="button" class="scan-btn-start" id="scanBtn" onclick="toggleScan()">
+          ⚡ Bắt đầu quét
+        </button>
+        <button type="button" class="log-btn" id="scanClearBtn" onclick="clearScanResults()" style="display:none;width:auto;padding:8px 10px;font-size:11px" title="Xóa danh sách kết quả">
+          🗑
+        </button>
+      </div>
+
+      <!-- Progress bar -->
+      <div id="scanProgressWrap" style="display:none;margin-top:8px">
+        <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-dim);margin-bottom:3px">
+          <span id="scanStatusText">Đang quét...</span>
+          <span id="scanPctText" style="font-family:var(--mono);color:var(--cyan)">0%</span>
+        </div>
+        <div style="height:4px;background:rgba(255,255,255,0.1);border-radius:2px;overflow:hidden">
+          <div id="scanProgressBar" style="height:100%;width:0%;background:linear-gradient(90deg,var(--blue),var(--cyan));transition:width 0.1s"></div>
+        </div>
+      </div>
+
+      <!-- Results list -->
+      <div id="scanResultsList" style="display:none;margin-top:8px;max-height:140px;overflow-y:auto;display:none;flex-direction:column;gap:5px">
+      </div>
+    </div>
+
+    <!-- Khối Đổi Motor ID -->
+    <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:10px;padding:8px 10px;margin-bottom:12px">
+      <div style="font-size:10px;font-weight:600;color:var(--text-dim);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px;display:flex;justify-content:space-between">
+        <span>⚙️ Đổi Motor ID (Flash)</span>
+        <span style="color:var(--purple);font-family:var(--mono)">reg 0x03</span>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <input class="field-input" id="newMotorId" placeholder="ID mới (hex)" maxlength="2" style="width:90px;text-align:center;font-family:var(--mono);text-transform:uppercase;padding:6px 8px;font-size:12px">
+        <button class="conn-btn" onclick="sendSetMotorId()" style="flex:1;padding:6px 10px;font-size:11px;background:rgba(168,85,247,0.15);color:var(--purple);border:1px solid rgba(168,85,247,0.4);font-weight:600">
+          💾 Đổi ID
+        </button>
+      </div>
+      <label style="font-size:10px;color:var(--text-dim);display:flex;align-items:center;gap:4px;cursor:pointer;margin-top:5px" title="Gửi tới ID 0xFE (dùng khi không nhớ ID hiện tại của động cơ)">
+        <input type="checkbox" id="broadcastIdCheck" style="accent-color:var(--purple)"> Gửi Broadcast (0xFE)
+      </label>
+    </div>
+    <div class="field-group">
+      <label class="field-label">Cổng kết nối</label>
+      <input class="field-input" id="baudRate" value="ESP32-C6 USB (COM26)" readonly>
+    </div>
+
+    <button class="conn-btn connect" id="connectBtn" onclick="toggleConnect()">
+      🔌 Kết nối Serial Port
+    </button>
+
+    <hr style="border-color:var(--border);margin:14px 0">
+
+    <div class="info-row">
+      <span>Trạng thái</span>
+      <span class="info-val" id="connState">Offline</span>
+    </div>
+    <div class="info-row">
+      <span>Protocol</span>
+      <span class="info-val">Dxl v1.0</span>
+    </div>
+    <div class="info-row">
+      <span>Bridge</span>
+      <span class="info-val">USB → UART1 1 Mbps</span>
+    </div>
+
+    <hr style="border-color:var(--border);margin:14px 0">
+    <div class="card-title" style="margin-bottom:10px">Vị Trí Motor</div>
+
+    <div class="pos-grid">
+      <div class="pos-card">
+        <div class="val" id="posRaw">—</div>
+        <div class="lbl">Raw (0~1023)</div>
+      </div>
+      <div class="pos-card">
+        <div class="val" id="posAngle">—</div>
+        <div class="lbl">Góc (°)</div>
+      </div>
+    </div>
+    <div class="info-row" style="margin-top:8px">
+      <span>Error</span>
+      <span class="info-val" id="posError">—</span>
+    </div>
+    <button class="conn-btn" onclick="sendReadPos()" style="margin-top:10px;background:rgba(6,182,212,0.12);color:var(--cyan);border:1px solid rgba(6,182,212,0.3)">
+      📍 Đọc Vị Trí
+    </button>
+
+    <hr style="border-color:var(--border);margin:14px 0">
+    <div class="card-title" style="margin-bottom:10px">Thống Kê</div>
+
+    <div class="info-row"><span>TX</span><span class="info-val green" id="statTx">0</span></div>
+    <div class="info-row"><span>RX</span><span class="info-val blue" id="statRx">0</span></div>
+    <div class="info-row"><span>Errors</span><span class="info-val red" id="statErr">0</span></div>
+    <div class="info-row"><span>Last Pos</span><span class="info-val orange" id="statPos">—</span></div>
+  </div>
+
+  <!-- ===== CENTER: Control Panel ===== -->
+  <div class="card control-panel">
+    <div class="card-title">EC4012 — Wheel Motor Control</div>
+
+    <!-- Gauge -->
+    <div class="gauge-wrap">
+      <svg class="gauge-svg" viewBox="0 0 200 200">
+        <defs>
+          <linearGradient id="gaugeGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stop-color="#3b82f6"/><stop offset="100%" stop-color="#a855f7"/>
+          </linearGradient>
+          <linearGradient id="gaugeGradGreen" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stop-color="#22c55e"/><stop offset="100%" stop-color="#06b6d4"/>
+          </linearGradient>
+        </defs>
+        <path class="gauge-track" d="M 30,150 A 80,80 0 1,1 170,150" stroke-dasharray="380" stroke-dashoffset="0"/>
+        <path class="gauge-fill" id="gaugeFill" d="M 30,150 A 80,80 0 1,1 170,150"
+          stroke="url(#gaugeGrad)" stroke-dasharray="380" stroke-dashoffset="380"/>
+        <text class="gauge-speed" id="gaugeSpeed" x="100" y="95">0</text>
+        <text class="gauge-label" x="100" y="120" text-anchor="middle">SPEED</text>
+        <text id="gaugeDir" x="100" y="140" text-anchor="middle" font-size="13" font-weight="600" fill="#6b7280">● STOP</text>
+      </svg>
+    </div>
+
+    <!-- Buttons: 2-col grid -->
+    <div class="ctrl-grid">
+      <button class="ctrl-btn btn-forward" id="btnFwd"
+        onmousedown="startHold('fwd')" onmouseup="endHold()" onmouseleave="endHold()"
+        ontouchstart="startHold('fwd')" ontouchend="endHold()">
+        <span class="btn-icon">▲</span><span>TIẾN</span>
+      </button>
+      <button class="ctrl-btn btn-ramp-up" onclick="rampSpeed(+50)">
+        <span class="btn-icon">⚡</span><span>Speed+</span>
+      </button>
+      <button class="ctrl-btn btn-stop" id="btnStop" onclick="sendStop()">
+        <span class="btn-icon" style="font-size:26px">⏹</span>
+        <span style="font-size:14px">DỪNG</span>
+        <span style="font-size:9px;opacity:.6">[Space]</span>
+      </button>
+      <button class="ctrl-btn btn-hold" id="btnHold" onclick="sendHold()">
+        <span class="btn-icon">🔒</span><span>HOLD</span>
+      </button>
+      <button class="ctrl-btn btn-backward" id="btnBwd"
+        onmousedown="startHold('bwd')" onmouseup="endHold()" onmouseleave="endHold()"
+        ontouchstart="startHold('bwd')" ontouchend="endHold()">
+        <span class="btn-icon">▼</span><span>LÙI</span>
+      </button>
+      <button class="ctrl-btn btn-ramp-dn" onclick="rampSpeed(-50)">
+        <span class="btn-icon">⚡</span><span>Speed-</span>
+      </button>
+    </div>
+
+    <div class="dir-invert-bar" id="dirBar">
+      <span id="dirLabel">▲ TIẾN = CCW (+speed) &nbsp;|&nbsp; ▼ LÙI = CW (-speed)</span>
+    </div>
+
+    <!-- Speed Slider -->
+    <div class="speed-wrap" style="margin-top:16px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <span style="font-size:12px;color:var(--text-dim)">Tốc độ Continuous (Speed - rpm)</span>
+        <span class="speed-val" id="speedDisplay">200</span>
+      </div>
+      <div class="speed-row">
+        <span style="font-size:12px;color:var(--text-dim)">0</span>
+        <input type="range" class="speed-slider" id="speedSlider"
+               min="0" max="950" value="200" oninput="onSpeedChange(this.value)" onchange="onSpeedRelease(this.value)">
+        <span style="font-size:12px;color:var(--text-dim)">950</span>
+      </div>
+      <div class="speed-labels">
+        <span>STOP</span><span>250</span><span>500</span><span>750</span><span>MAX (950)</span>
+      </div>
+    </div>
+
+    <!-- Angle control: Position mode (Velocity Mode reg 0x11 = 2) -->
+    <div class="speed-wrap goal-wrap" style="margin-top:16px">
+      <div class="card-title" style="margin-bottom:10px">🎯 Điều khiển góc (Position mode)</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <span style="font-size:12px;color:var(--text-dim)">Góc đích (Goal Position, reg 0x1E)</span>
+        <span class="speed-val" id="posGoalValText" style="font-size:15px;min-width:0">512 (180.0°)</span>
+      </div>
+      <div class="speed-row">
+        <span style="font-size:12px;color:var(--text-dim)">0°</span>
+        <input type="range" class="speed-slider" id="goalPosSlider"
+               min="0" max="1023" value="512" oninput="onGoalSlider(this.value)" onchange="onGoalSliderRelease(this.value)">
+        <span style="font-size:12px;color:var(--text-dim)">360°</span>
+      </div>
+
+      <div class="goal-row">
+        <input class="field-input" id="goalDegInput" type="number" min="0" max="359.6" step="0.1" value="180.0"
+               onchange="onGoalDegInput(this.value)" title="Góc đích (độ)">
+        <span style="font-size:12px;color:var(--text-dim)">°</span>
+        <button class="goal-go" id="goalGoBtn" onclick="sendGoalPos(goalPos)">▶ QUAY TỚI GÓC</button>
+      </div>
+      <label style="display:flex;align-items:center;gap:6px;margin-top:8px;font-size:11px;color:var(--text-dim);cursor:pointer">
+        <input type="checkbox" id="goalLive" style="accent-color:var(--cyan)"> Gửi ngay khi kéo thanh trượt
+      </label>
+
+      <div class="goal-presets">
+        <button onclick="goDeg(0)">0°</button>
+        <button onclick="goDeg(90)">90°</button>
+        <button onclick="goDeg(180)">180°</button>
+        <button onclick="goDeg(270)">270°</button>
+        <button onclick="stepGoal(-10)">−10°</button>
+        <button onclick="stepGoal(+10)">+10°</button>
+      </div>
+
+      <div style="display:flex;justify-content:space-between;align-items:center;margin:14px 0 6px">
+        <span style="font-size:12px;color:var(--text-dim)">Giới hạn tốc độ khi quay tới góc (rpm)</span>
+        <span class="speed-val" id="posSpeedVal" style="font-size:15px;min-width:0">100</span>
+      </div>
+      <div class="speed-row">
+        <span style="font-size:12px;color:var(--text-dim)">10</span>
+        <input type="range" class="speed-slider" id="posSpeedSlider"
+               min="10" max="950" value="100" oninput="onPosSpeedChange(this.value)" onchange="onPosSpeedRelease(this.value)">
+        <span style="font-size:12px;color:var(--text-dim)">950</span>
+      </div>
+
+      <div class="goal-status">
+        <div class="pos-card"><div class="val" id="goalTgtTxt">—</div><div class="lbl">Đích</div></div>
+        <div class="pos-card"><div class="val" id="goalCurTxt">—</div><div class="lbl">Hiện tại</div></div>
+        <div class="pos-card"><div class="val" id="goalErrTxt">—</div><div class="lbl">Sai lệch</div></div>
+      </div>
+      <div class="goal-state" id="goalState">Chưa gửi lệnh góc</div>
+      <div style="font-size:10px;color:var(--text-dim);margin-top:6px;text-align:center">
+        Cần firmware có Position mode (reg 0x11 = 2). 1024 bước = 360°. Quay Tiến/Lùi sẽ tự chuyển về chế độ tốc độ (reg 0x11 = 1).
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== RIGHT: Log Panel ===== -->
+  <div class="card log-panel">
+    <div class="card-title">Packet Log</div>
+    <div class="log-box" id="logBox" style="max-height:calc(100vh - 280px)">
+      <div class="log-entry log-info">⬡ Sẵn sàng. Kết nối serial để bắt đầu.</div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:8px;align-items:center;flex-wrap:wrap">
+      <button class="log-btn" onclick="clearLog()">🗑 Xóa log</button>
+      <button class="log-btn" onclick="toggleAutoRead()" id="autoReadBtn">⏱ Auto Read</button>
+    </div>
+    <div style="margin-top:10px;padding:8px 10px;background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:10px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <span style="font-size:11px;color:var(--text-dim)">⏱ Tốc độ đọc</span>
+        <span style="font-family:var(--mono);font-size:12px;color:var(--cyan)" id="readIntervalDisplay">500 ms</span>
+      </div>
+      <input type="range" id="readIntervalSlider"
+        min="0" max="100" value="55"
+        style="width:100%;accent-color:var(--cyan);cursor:pointer"
+        oninput="onReadIntervalChange(this.value)">
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-dim);margin-top:2px">
+        <span>15ms</span><span>100ms</span><span>500ms</span><span>1s</span><span>2s</span>
+      </div>
+    </div>
+    <div style="margin-top:10px">
+      <div style="font-size:10px;color:var(--text-dim);margin-bottom:4px;display:flex;justify-content:space-between">
+        <span>📡 RAW RX BYTES</span>
+        <span onclick="document.getElementById('rawMonitor').textContent=''" style="cursor:pointer;color:var(--red)">xóa</span>
+      </div>
+      <pre id="rawMonitor" style="font-family:var(--mono);font-size:10px;background:rgba(0,0,0,0.4);border:1px solid var(--border);border-radius:8px;padding:8px;height:70px;overflow-y:auto;color:#4ade80;white-space:pre-wrap;word-break:break-all;margin:0"></pre>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ===================================================
+// STATE
+// ===================================================
+let port = null, reader = null, writer = null;
+const MAX_SPEED = 950;           // Tốc độ tối đa (vòng/phút - rpm)
+let motorId = 0x01;
+let currentSpeed = 200;
+let currentMode  = 'stop';
+let lastTxPacket   = [];
+let autoReadTimer = null;
+let holdInterval  = null;
+let lastPos = 0;
+let statTx = 0, statRx = 0, statErr = 0;
+let isTorqueActive = false;
+let positionModeActive = null;   // null = chưa biết, false = Speed mode (0x11=1), true = Position mode (0x11=2)
+let goalPos = 512;              // Goal Position 0..1023 (1024 bước = 360°)
+let posSpeed = 100;             // giới hạn tốc độ khi quay tới góc (rpm)
+let goalActive = false;         // đã gửi lệnh góc, đang theo dõi tới đích
+let goalBusy = false, goalPending = false, goalLiveTimer = null;
+let goalPollTimer = null, goalPollUntil = 0, goalArrivedCnt = 0;
+let lastPosStamp = 0;
+const GOAL_TOL = 3;             // |sai lệch| <= 3 bước coi như đã tới đích (giống firmware)
+let isScanning = false;
+let scannedMotors = [];
+let scanResponseHandler = null;
+let scanPreset = { from: 1, to: 16 };
+let isCustomRange = false;
+
+// ===================================================
+// SERIAL CONNECT
+// ===================================================
+async function toggleConnect() {
+  if (port) { await disconnectSerial(); return; }
+  await connectSerial();
+}
+
+async function connectSerial() {
+  if (!('serial' in navigator)) {
+    document.getElementById('noSerial').style.display = 'block';
+    logEntry('err', 'Web Serial API không được hỗ trợ. Dùng Chrome/Edge.');
+    return;
+  }
+  try {
+    // Chỉ hiển thị cổng USB native của ESP32-C6 (VID 0x303A, PID 0x1001) = COM26.
+    // Firmware bridge đẩy byte này ra bus motor 1 Mbps và trả phản hồi về (đã lọc echo).
+    // Lưu ý: Web Serial không chọn được theo tên COM, hộp thoại sẽ liệt kê thiết bị phù hợp.
+    port = await navigator.serial.requestPort({
+      filters: [{ usbVendorId: 0x303A, usbProductId: 0x1001 }]
+    });
+    // Baud chỉ là giá trị danh nghĩa vì đây là USB CDC; motor chạy 1 Mbps phía sau bridge
+    await port.open({
+      baudRate: 115200,
+      dataBits: 8,
+      stopBits: 1,
+      parity: 'none'
+    });
+    writer = port.writable.getWriter();
+    reader = port.readable.getReader();
+    setConnected(true);
+    logEntry('info', `✅ Đã kết nối bridge ESP32-C6 (USB) — motor bus 1,000,000 bps`);
+    readLoop();
+  } catch(e) {
+    logEntry('err', '❌ ' + e.message);
+    port = null;
+  }
+}
+
+async function disconnectSerial() {
+  stopAutoRead();
+  try {
+    if (reader) { await reader.cancel(); reader.releaseLock(); reader = null; }
+    if (writer) { writer.releaseLock(); writer = null; }
+    if (port)   { await port.close(); port = null; }
+  } catch(e) {}
+  port = null;
+  setConnected(false);
+  logEntry('info', '🔌 Đã ngắt kết nối.');
+}
+
+function setConnected(on) {
+  positionModeActive = null;   // chưa biết chế độ hiện tại của motor
+  document.getElementById('statusDot').className  = 'status-dot' + (on ? ' connected' : '');
+  document.getElementById('statusText').textContent = on ? 'Đã kết nối' : 'Chưa kết nối';
+  document.getElementById('connState').textContent  = on ? 'Online' : 'Offline';
+  const btn = document.getElementById('connectBtn');
+  btn.textContent = on ? '⛔ Ngắt kết nối' : '🔌 Kết nối Serial Port';
+  btn.className   = 'conn-btn ' + (on ? 'disconnect' : 'connect');
+}
+
+// ===================================================
+// READ LOOP (cải tiến: xử lý echo half-duplex)
+// ===================================================
+async function readLoop() {
+  let buf = [];
+  while (reader) {
+    try {
+      const { value, done } = await reader.read();
+      if (done) break;
+
+      // Hiển thị raw bytes ngăn gọn vào raw monitor
+      const rawHex = Array.from(value).map(b => b.toString(16).toUpperCase().padStart(2,'0')).join(' ');
+      addRawByte(rawHex);
+
+      for (const b of value) {
+        buf.push(b);
+
+        // Phát hiện header mới FF FF — reset buffer nhưng giữ 2 byte header
+        if (buf.length >= 4 &&
+            buf[buf.length-2] === 0xFF && buf[buf.length-1] === 0xFF) {
+          // Có header mới bắt đầu, xử lý phần cũ nếu có
+          buf = [0xFF, 0xFF];
+          continue;
+        }
+
+        if (buf.length < 4) continue;
+        if (buf[0] !== 0xFF || buf[1] !== 0xFF) { buf = []; continue; }
+
+        const len = buf[3];
+        if (len < 2 || len > 50) { buf = []; continue; }  // sanity check
+
+        if (buf.length < 4 + len) continue;  // chưa đủ byte
+
+        // Đủ 1 packet — kiểm tra có phải echo TX không
+        const pkt = buf.splice(0, 4 + len);
+        if (isEcho(pkt)) {
+          logEntry('info', pkt.map(b=>b.toString(16).toUpperCase().padStart(2,'0')).join(' '), '(echo bỏ qua)');
+        } else {
+          parseStatusPacket(pkt);
+        }
+        buf = [];  // reset sau mỗi packet
+      }
+    } catch(e) { logEntry('err', '', 'Read error: ' + e.message); break; }
+  }
+}
+
+// Kiểm tra packet có phải echo của TX không
+function isEcho(pkt) {
+  if (lastTxPacket.length !== pkt.length) return false;
+  return pkt.every((b, i) => b === lastTxPacket[i]);
+}
+
+// Hiển thị raw bytes vào ô monitor
+function addRawByte(hex) {
+  const el = document.getElementById('rawMonitor');
+  if (!el) return;
+  el.textContent += hex + ' ';
+  if (el.textContent.length > 2000) el.textContent = el.textContent.slice(-1000);
+  el.scrollTop = el.scrollHeight;
+}
+
+function parseStatusPacket(pkt) {
+  statRx++;
+  document.getElementById('statRx').textContent = statRx;
+  const hex = pkt.map(b => b.toString(16).toUpperCase().padStart(2,'0')).join(' ');
+  if (pkt.length < 6) return;
+  const id  = pkt[2];
+  const err = pkt[4];
+  const errStr = err === 0 ? '✅ 0x00' : `⚠️ 0x${err.toString(16).toUpperCase().padStart(2,'0')}`;
+
+  if (scanResponseHandler) {
+    scanResponseHandler(id, err, pkt);
+    if (isScanning) return;
+  }
+
+  // Present Position in status packet (LEN = 0x0B: motor echo + 6 bytes data)
+  // Motor này echo lại 3 bytes request (LEN INS ADDR) trước data thực:
+  //   pkt[5] = echoed LEN (0x04)
+  //   pkt[6] = echoed INS (0x02 = READ)
+  //   pkt[7] = echoed ADDR (0x24)
+  //   pkt[8] = Present Position Lo  ← đọc từ đây
+  //   pkt[9] = Present Position Hi
+  //   pkt[10]= Present Speed Lo
+  //   pkt[11]= Present Speed Hi
+  //   pkt[12]= Present Load Lo
+  //   pkt[13]= Present Load Hi
+  if (pkt.length >= 10 && pkt[3] === 0x06 && pkt[5] === 0x04 && pkt[6] === 0x02 && pkt[7] === 0x11) {
+    positionModeActive = (pkt[8] === 2);
+    logEntry('rx', hex, `← Velocity Mode = ${pkt[8]} (${pkt[8] === 2 ? 'Position mode' : 'Speed mode'})`);
+    return;
+  }
+
+  if (pkt.length >= 15 && pkt[3] === 0x0B) {
+    const echo = `${pkt[5].toString(16).toUpperCase().padStart(2,'0')} ${pkt[6].toString(16).toUpperCase().padStart(2,'0')} ${pkt[7].toString(16).toUpperCase().padStart(2,'0')}`;
+    const lo  = pkt[8], hi = pkt[9];   // byte 8 & 9 = data thực
+    const pos = lo + hi * 256;
+    lastPos   = pos;
+
+    // Tính speed từ Present Speed register
+    const spdLo = pkt[10], spdHi = pkt[11];
+    let   spdRaw = spdLo + spdHi * 256;
+    // speed signed int16: nếu > 32767 thì âm (CW)
+    const spdSigned = spdRaw > 32767 ? spdRaw - 65536 : spdRaw;
+
+    // Góc 0~360° theo mỗi vòng quay (Wheel Mode encoder wrap 0~1023 = 0~360°)
+    const ang = (pos * 360 / 1024).toFixed(1);
+
+    document.getElementById('posRaw').textContent   = pos;
+    document.getElementById('posAngle').textContent = ang + '°';
+    document.getElementById('posError').textContent = errStr;
+    document.getElementById('statPos').textContent  = `${pos} (${ang}°)`;
+    lastPosStamp = Date.now();
+    updateGoalStatus(pos, err);
+    logEntry('rx', hex,
+      `← [echo:${echo}] Pos=${pos} (${ang}°/360) Spd=${spdSigned > 0 ? '+' : ''}${spdSigned} Err=${errStr}`);
+  } else {
+    if (err > 0) statErr++;
+    document.getElementById('statErr').textContent = statErr;
+    document.getElementById('posError').textContent = errStr;
+    logEntry('rx', hex, `← ID=${id} Err=${errStr}`);
+  }
+}
+
+// ===================================================
+// PACKET BUILDERS
+// ===================================================
+function dxlChecksum(bytes) {
+  let sum = 0;
+  for (const b of bytes) sum += b;
+  return (~sum) & 0xFF;
+}
+
+function buildWriteSpeed(id, speed) {
+  const spd20 = speed < 0 ? ((0x10000 + speed) & 0xFFFF) : (speed & 0xFFFF);
+  const lo = spd20 & 0xFF, hi = (spd20 >> 8) & 0xFF;
+  const chk = dxlChecksum([id, 0x05, 0x03, 0x20, lo, hi]);
+  return [0xFF, 0xFF, id, 0x05, 0x03, 0x20, lo, hi, chk];
+}
+
+function buildWriteGoal(id, pos) {
+  const lo = pos & 0xFF, hi = (pos >> 8) & 0xFF;
+  const chk = dxlChecksum([id, 0x05, 0x03, 0x1E, lo, hi]);
+  return [0xFF, 0xFF, id, 0x05, 0x03, 0x1E, lo, hi, chk];
+}
+
+// Write 0x1E..0x21 một lần: Goal Position (2B) + Moving Speed (2B = giới hạn tốc độ, rpm)
+function buildWriteGoalSpeed(id, pos, spd) {
+  const body = [id, 0x07, 0x03, 0x1E, pos & 0xFF, (pos >> 8) & 0xFF, spd & 0xFF, (spd >> 8) & 0xFF];
+  return [0xFF, 0xFF, ...body, dxlChecksum(body)];
+}
+
+function buildWriteVelMode(id, mode) {
+  const body = [id, 0x04, 0x03, 0x11, mode];
+  return [0xFF, 0xFF, ...body, dxlChecksum(body)];
+}
+
+function buildReadPos(id) {
+  const chk = dxlChecksum([id, 0x04, 0x02, 0x24, 0x06]);
+  return [0xFF, 0xFF, id, 0x04, 0x02, 0x24, 0x06, chk];
+}
+
+function buildPing(id) {
+  const body = [id, 0x02, 0x01];
+  return [0xFF, 0xFF, ...body, dxlChecksum(body)];
+}
+
+function buildWriteMotorId(targetId, newId) {
+  const body = [targetId, 0x04, 0x03, 0x03, newId];
+  return [0xFF, 0xFF, ...body, dxlChecksum(body)];
+}
+
+// ===================================================
+// SEND
+// ===================================================
+async function sendPacket(pkt, desc, silent = false) {
+  if (!writer) { logEntry('err', '', '⚠️ Chưa kết nối serial!'); return false; }
+  try {
+    lastTxPacket = [];  // bridge firmware đã lọc echo, không cần so sánh lại ở PC
+    await writer.write(new Uint8Array(pkt));
+    statTx++;
+    document.getElementById('statTx').textContent = statTx;
+    if (!silent) {
+      const hex = pkt.map(b => b.toString(16).toUpperCase().padStart(2,'0')).join(' ');
+      logEntry('tx', hex, '→ ' + desc);
+    }
+    return true;
+  } catch(e) {
+    logEntry('err', '', '❌ Send error: ' + e.message);
+    return false;
+  }
+}
+
+// ===================================================
+// CONTROLS
+// ===================================================
+function getMotorId() {
+  return parseInt(document.getElementById('motorId').value, 16) || 0x01;
+}
+
+async function sendPing() {
+  const id = getMotorId();
+  const hexId = id.toString(16).toUpperCase().padStart(2, '0');
+  logEntry('info', '', `🔍 Đang Ping Motor ID 0x${hexId}...`);
+  await sendPacket(buildPing(id), `PING ID=0x${hexId}`);
+}
+
+async function sendSetMotorId() {
+  const newIdRaw = document.getElementById('newMotorId').value.trim();
+  if (!newIdRaw) {
+    alert('Vui lòng nhập ID mới dạng hex (ví dụ: 01, 02, 0A...)');
+    return;
+  }
+  const newId = parseInt(newIdRaw, 16);
+  if (isNaN(newId) || newId < 1 || newId > 253) {
+    alert('ID không hợp lệ! ID phải từ 0x01 đến 0xFD (1 ~ 253). Không được dùng 0x00, 0xFE hoặc 0xFF.');
+    return;
+  }
+
+  const useBroadcast = document.getElementById('broadcastIdCheck').checked;
+  const currentId = getMotorId();
+  const targetId = useBroadcast ? 0xFE : currentId;
+  const targetStr = useBroadcast ? 'Broadcast (0xFE)' : `0x${currentId.toString(16).toUpperCase().padStart(2, '0')}`;
+  const newIdHex = newId.toString(16).toUpperCase().padStart(2, '0');
+
+  const conf = confirm(`Xác nhận đổi Motor ID từ ${targetStr} sang 0x${newIdHex}?\n\nLệnh này sẽ ghi vào thanh ghi 0x03 và lưu vào Flash của motor.`);
+  if (!conf) return;
+
+  const ok = await sendPacket(buildWriteMotorId(targetId, newId), `Đổi Motor ID sang 0x${newIdHex} (reg 0x03, lưu Flash)`);
+  if (ok) {
+    await sleep(100); // chờ lưu flash
+    document.getElementById('motorId').value = newIdHex;
+    document.getElementById('newMotorId').value = '';
+    updateActiveMotorChips();
+    logEntry('info', '', `✅ Đã gửi lệnh đổi ID sang 0x${newIdHex}. Tool đã tự động chuyển sang Motor ID 0x${newIdHex}.`);
+    // Gửi ping kiểm tra lại ID mới
+    await sleep(50);
+    await sendPing();
+  }
+}
+
+async function ensureTorque(id, enable) {
+  const val = enable ? 0x01 : 0x00;
+  const desc = enable ? 'Torque Enable' : 'Torque Disable';
+  const chk18 = dxlChecksum([id, 0x04, 0x03, 0x18, val]);
+  await sendPacket([0xFF, 0xFF, id, 0x04, 0x03, 0x18, val, chk18], `${desc} (reg 0x18)`);
+  isTorqueActive = enable;
+}
+
+// Velocity Mode Control (reg 0x11): 1 = Speed mode (PID tốc độ), 2 = Position mode.
+// 0x11 là thanh ghi EEPROM nên firmware lưu vào flash khi đổi (chỉ ghi khi thật sự đổi chế độ).
+async function syncVelocityMode(id) {
+  if (positionModeActive !== null) return;
+  const chk = dxlChecksum([id, 0x04, 0x02, 0x11, 0x01]);
+  await sendPacket([0xFF, 0xFF, id, 0x04, 0x02, 0x11, 0x01, chk], 'READ Velocity Mode (reg 0x11)');
+  for (let i = 0; i < 15 && positionModeActive === null; i++) await sleep(10);
+}
+
+async function setVelocityMode(id, mode) {
+  const want = (mode === 2);
+  if (positionModeActive === want) return;
+  await sendPacket(buildWriteVelMode(id, mode),
+    mode === 2 ? '🎯 Velocity Mode = 2 → Position mode (reg 0x11, lưu flash)'
+               : '⚙️ Velocity Mode = 1 → Speed mode (reg 0x11, lưu flash)');
+  await sleep(80);   // chờ firmware ghi flash xong
+  positionModeActive = want;
+}
+
+// Tiến/Lùi cần Speed mode: nếu đang ở Position mode thì chuyển về
+async function ensureSpeedMode(id) {
+  await syncVelocityMode(id);
+  if (positionModeActive === false) return;
+  goalActive = false;
+  stopGoalPoll();
+  setGoalState('', 'Đã chuyển về Speed mode');
+  await setVelocityMode(id, 1);
+}
+
+async function sendForward(speed) {
+  const id = getMotorId();
+  await ensureSpeedMode(id);
+  if (!isTorqueActive) {
+    await ensureTorque(id, true);
+    await sleep(20);
+  }
+  await sendPacket(buildWriteSpeed(id, speed), `TIẾN CCW +${speed}`);
+  setMode('fwd');
+}
+
+async function sendBackward(speed) {
+  const id = getMotorId();
+  await ensureSpeedMode(id);
+  if (!isTorqueActive) {
+    await ensureTorque(id, true);
+    await sleep(20);
+  }
+  await sendPacket(buildWriteSpeed(id, -speed), `LÙI CW -${speed}`);
+  setMode('bwd');
+}
+
+// COAST = thả lỏng (alias của DỪNG)
+function sendCoast() { sendStop(); }
+
+// DỪNG = thả lỏng (Torque Disable reg 0x18=0)
+async function sendStop() {
+  endHold();
+  goalActive = false;
+  stopGoalPoll();
+  const id = getMotorId();
+  // Position mode: KHÔNG ghi Speed (ghi 0x21 sẽ bật torque và kéo về góc đích cũ)
+  if (positionModeActive !== true) {
+    await sendPacket(buildWriteSpeed(id, 0), 'Speed=0');
+    await sleep(15);
+  }
+  await ensureTorque(id, false);
+  setGoalState('', 'Đã dừng (torque off)');
+  setMode('stop');
+}
+
+// HOLD = giữ vị trí cứng (Active Braking: Torque Enable + Speed=0 + Lock Current Pos)
+// Trong Position mode: đọc góc hiện tại rồi dùng nó làm góc đích.
+async function sendHold() {
+  endHold();
+  const id = getMotorId();
+  await syncVelocityMode(id);
+
+  if (positionModeActive === true) {
+    lastPosStamp = 0;
+    await sendReadPos();
+    await sleep(60);
+    if (Date.now() - lastPosStamp < 300) {
+      await sendGoalPos(lastPos);
+      setMode('hold');
+      setGoalState('arrived', `🔒 HOLD tại ${stepsToDeg(lastPos).toFixed(1)}°`);
+    } else {
+      logEntry('err', '', '⚠️ HOLD: không đọc được vị trí hiện tại');
+    }
+    return;
+  }
+
+  await ensureTorque(id, true);
+  await sleep(15);
+
+  await sendPacket(buildWriteSpeed(id, 0), 'HOLD: Speed=0');
+  await sleep(15);
+
+  if (!lastPos || lastPos === 0) {
+    await sendReadPos();
+    await sleep(40);
+  }
+
+  if (lastPos && lastPos > 0) {
+    await sendPacket(buildWriteGoal(id, lastPos), `🔒 HOLD: Lock Goal Pos=${lastPos} (reg 0x1E)`);
+  }
+
+  setMode('hold');
+}
+
+// GOAL POSITION ANGLE CONTROL (Position mode: Velocity Mode reg 0x11 = 2,
+// Goal Position reg 0x1E..0x1F, Moving Speed = giới hạn tốc độ reg 0x20..0x21)
+// 1024 bước = 360° (0..1023). Firmware tự đi đường ngắn nhất khi Min/Max = 0/1023.
+function wrap1024(x)   { return ((x % 1024) + 1024) % 1024; }
+function wrapErr(d)    { return ((d + 512) % 1024 + 1024) % 1024 - 512; }   // -512..+511
+function stepsToDeg(v) { return v * 360 / 1024; }
+
+function setGoalUI(v) {
+  goalPos = v;
+  const deg = stepsToDeg(v).toFixed(1);
+  const slider = document.getElementById('goalPosSlider');
+  slider.value = v;
+  slider.style.setProperty('--pct', (v / 1023 * 100).toFixed(1) + '%');
+  document.getElementById('posGoalValText').textContent = `${v} (${deg}°)`;
+  document.getElementById('goalDegInput').value = deg;
+  document.getElementById('goalTgtTxt').textContent = deg + '°';
+}
+
+function setGoalState(cls, text) {
+  const el = document.getElementById('goalState');
+  el.className = 'goal-state' + (cls ? ' ' + cls : '');
+  el.textContent = text;
+}
+
+// Nhả tay khỏi thanh trượt góc: gửi góc đích ngay
+function onGoalSliderRelease(val) {
+  if (goalLiveTimer) { clearTimeout(goalLiveTimer); goalLiveTimer = null; }
+  setGoalUI(parseInt(val));
+  sendGoalPos(goalPos);
+}
+
+// Nhả tay khỏi thanh trượt giới hạn tốc độ: nếu đang quay tới góc thì gửi lại với tốc độ mới
+function onPosSpeedRelease(val) {
+  onPosSpeedChange(val);
+  if (goalLiveTimer) { clearTimeout(goalLiveTimer); goalLiveTimer = null; }
+  if (goalActive) sendGoalPos(goalPos);
+}
+
+// Nhả tay khỏi thanh trượt tốc độ Continuous: nếu đang Tiến/Lùi thì gửi tốc độ mới
+function onSpeedRelease(val) {
+  onSpeedChange(val);
+  if (currentMode === 'fwd') sendForward(currentSpeed);
+  else if (currentMode === 'bwd') sendBackward(currentSpeed);
+}
+
+function onGoalSlider(val) {
+  setGoalUI(parseInt(val));
+  if (document.getElementById('goalLive').checked) scheduleLiveGoal();
+}
+
+function onGoalDegInput(val) {
+  const d = parseFloat(val);
+  if (isNaN(d)) return;
+  setGoalUI(wrap1024(Math.round(d * 1024 / 360)));
+}
+
+function goDeg(deg) {
+  setGoalUI(wrap1024(Math.round(deg * 1024 / 360)));
+  sendGoalPos(goalPos);
+}
+
+function stepGoal(deltaDeg) {
+  setGoalUI(wrap1024(goalPos + Math.round(deltaDeg * 1024 / 360)));
+  sendGoalPos(goalPos);
+}
+
+function onPosSpeedChange(val) {
+  posSpeed = parseInt(val);
+  document.getElementById('posSpeedVal').textContent = posSpeed;
+  document.getElementById('posSpeedSlider').style.setProperty('--pct', ((posSpeed - 10) / (MAX_SPEED - 10) * 100).toFixed(1) + '%');
+  if (currentMode === 'pos') updateGauge();
+  if (goalActive && document.getElementById('goalLive').checked) scheduleLiveGoal();
+}
+
+// Gửi liên tục khi kéo thanh trượt nhưng không quá ~12 lần/giây
+function scheduleLiveGoal() {
+  if (goalLiveTimer) return;
+  goalLiveTimer = setTimeout(() => { goalLiveTimer = null; sendGoalPos(goalPos); }, 80);
+}
+
+async function sendGoalPos(val) {
+  if (!writer) { logEntry('err', '', '⚠️ Chưa kết nối serial!'); setGoalState('warn', 'Chưa kết nối serial'); return; }
+  setGoalUI(Math.max(0, Math.min(1023, parseInt(val))));
+  if (goalBusy) { goalPending = true; return; }   // đang gửi: gửi lại giá trị mới nhất sau
+  goalBusy = true;
+  try {
+    do {
+      goalPending = false;
+      const id = getMotorId();
+      endHold();
+      await syncVelocityMode(id);
+      await setVelocityMode(id, 2);
+      // 1 lệnh Write 0x1E..0x21: Goal(2B) + Moving Speed(2B). Ghi 0x1F chốt đích + bật torque.
+      const deg = stepsToDeg(goalPos).toFixed(1);
+      const ok = await sendPacket(buildWriteGoalSpeed(id, goalPos, posSpeed),
+        `🎯 QUAY TỚI GÓC Goal=${goalPos} (${deg}°) Limit=${posSpeed}rpm (reg 0x1E)`);
+      if (ok) {
+        isTorqueActive = true;
+        goalActive = true;
+        goalArrivedCnt = 0;
+        setGoalState('moving', `Đang quay tới ${deg}°…`);
+        setMode('pos');
+        startGoalPoll();
+      }
+    } while (goalPending);
+  } finally {
+    goalBusy = false;
+  }
+}
+
+// Đọc vị trí định kỳ để theo dõi tới đích (tắt khi tới đích / dừng / quá 15 s)
+function startGoalPoll() {
+  goalPollUntil = Date.now() + 15000;
+  if (goalPollTimer) return;
+  goalPollTimer = setInterval(() => {
+    if (!goalActive || !writer || Date.now() > goalPollUntil) { stopGoalPoll(); return; }
+    if (!autoReadTimer) sendReadPos();
+  }, 100);
+}
+function stopGoalPoll() {
+  if (goalPollTimer) { clearInterval(goalPollTimer); goalPollTimer = null; }
+}
+
+// Cập nhật thẻ "Điều khiển góc" mỗi khi nhận được Present Position
+function updateGoalStatus(pos, err) {
+  document.getElementById('goalCurTxt').textContent = stepsToDeg(pos).toFixed(1) + '°';
+  const errEl = document.getElementById('goalErrTxt');
+  if (!goalActive) { errEl.textContent = '—'; return; }
+  const e = wrapErr(goalPos - pos);
+  const eDeg = stepsToDeg(e).toFixed(1);
+  errEl.textContent = (e > 0 ? '+' : '') + eDeg + '°';
+  if (err & 0x02) {
+    setGoalState('warn', '⚠️ Góc đích nằm ngoài giới hạn Min/Max (status 0x02)');
+  } else if (Math.abs(e) <= GOAL_TOL) {
+    setGoalState('arrived', `✅ Đã tới đích ${stepsToDeg(goalPos).toFixed(1)}° (sai lệch ${eDeg}°)`);
+    if (++goalArrivedCnt >= 3) stopGoalPoll();
+  } else {
+    goalArrivedCnt = 0;
+    setGoalState('moving', `Đang quay… còn ${Math.abs(eDeg)}°`);
+  }
+}
+
+async function sendReadPos() {
+  const id = getMotorId();
+  await sendPacket(buildReadPos(id), 'READ Present Position');
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// Hold-while-pressed
+function startHold(dir) {
+  if (holdInterval) clearInterval(holdInterval);
+  const id = getMotorId();
+  const speed = dir === 'fwd' ? currentSpeed : -currentSpeed;
+  
+  if (dir === 'fwd') sendForward(currentSpeed);
+  else sendBackward(currentSpeed);
+
+  holdInterval = setInterval(async () => {
+    if (writer && port && positionModeActive !== true) {
+      await sendPacket(buildWriteSpeed(id, speed), `Heartbeat Speed=${speed}`);
+    }
+  }, 250);
+}
+function endHold() {
+  if (holdInterval) { clearInterval(holdInterval); holdInterval = null; }
+}
+
+function rampSpeed(delta) {
+  currentSpeed = Math.max(0, Math.min(MAX_SPEED, currentSpeed + delta));
+  document.getElementById('speedSlider').value = currentSpeed;
+  onSpeedChange(currentSpeed);
+  if (currentMode === 'fwd') sendForward(currentSpeed);
+  else if (currentMode === 'bwd') sendBackward(currentSpeed);
+}
+
+// ===================================================
+// UI STATE
+// ===================================================
+function setMode(mode) {
+  currentMode = mode;
+  ['btnFwd','btnBwd','btnCoast','btnHold','btnStop'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.classList.remove('active');
+  });
+
+  const modeMap = {
+    fwd:   { btn:'btnFwd',   color:'#22c55e' },
+    bwd:   { btn:'btnBwd',   color:'#3b82f6' },
+    coast: { btn:'btnCoast', color:'#6b7280' },
+    hold:  { btn:'btnHold',  color:'#f59e0b' },
+    stop:  { btn:'btnStop',  color:'#ef4444' },
+    pos:   { btn:null,       color:'#06b6d4' },
+  };
+  const m = modeMap[mode] || modeMap.stop;
+  if (m.btn && document.getElementById(m.btn)) document.getElementById(m.btn).classList.add('active');
+  updateGauge();
+}
+
+function onSpeedChange(val) {
+  currentSpeed = parseInt(val);
+  document.getElementById('speedDisplay').textContent = currentSpeed;
+  const pct = (currentSpeed / MAX_SPEED * 100).toFixed(1);
+  document.getElementById('speedSlider').style.setProperty('--pct', pct + '%');
+  updateGauge();
+}
+
+function updateGauge() {
+  const spd = currentMode === 'coast' || currentMode === 'stop' ? 0 : (currentMode === 'pos' ? posSpeed : currentSpeed);
+  const pct = Math.min(1, Math.max(0, spd / MAX_SPEED));
+  const totalLen = 380;
+  const fill  = pct * totalLen;
+  const gauge = document.getElementById('gaugeFill');
+  gauge.style.strokeDashoffset = totalLen - fill;
+
+  const isGreen = currentMode === 'fwd';
+  gauge.style.stroke = currentMode === 'coast' || currentMode === 'stop'
+    ? 'rgba(255,255,255,0.1)'
+    : isGreen ? 'url(#gaugeGradGreen)' : 'url(#gaugeGrad)';
+
+  document.getElementById('gaugeSpeed').textContent = spd;
+
+  const dirEl  = document.getElementById('gaugeDir');
+  const dirMap = { fwd:'▲  CW (Tiến)', bwd:'▼  CCW (Lùi)', coast:'○  COAST', hold:'🔒  HOLD', stop:'●  STOP', pos:'🎯  GÓC' };
+  dirEl.textContent = dirMap[currentMode] || '●  STOP';
+  dirEl.style.fill  = { fwd:'#22c55e', bwd:'#3b82f6', hold:'#f59e0b', coast:'#6b7280', stop:'#6b7280', pos:'#06b6d4' }[currentMode];
+}
+
+// ===================================================
+// AUTO READ
+// ===================================================
+function sliderToMs(v) {
+  return Math.round(15 * Math.pow(2000/15, v/100));
+}
+
+function onReadIntervalChange(v) {
+  const ms = sliderToMs(v);
+  document.getElementById('readIntervalDisplay').textContent = ms < 1000 ? ms + ' ms' : (ms/1000).toFixed(2).replace(/\.?0+$/,'') + ' s';
+  if (autoReadTimer) {
+    clearInterval(autoReadTimer);
+    autoReadTimer = setInterval(sendReadPos, ms);
+  }
+}
+
+function getReadIntervalMs() {
+  const v = document.getElementById('readIntervalSlider').value;
+  return sliderToMs(v);
+}
+
+function toggleAutoRead() {
+  if (autoReadTimer) { stopAutoRead(); return; }
+  const ms = getReadIntervalMs();
+  logEntry('info', `⏱ Auto-read vị trí mỗi ${ms < 1000 ? ms+'ms' : (ms/1000).toFixed(2).replace(/\.?0+$/,'')+'s'}`);
+  autoReadTimer = setInterval(sendReadPos, ms);
+  document.getElementById('autoReadBtn').textContent = '⏹ Dừng';
+}
+function stopAutoRead() {
+  if (autoReadTimer) { clearInterval(autoReadTimer); autoReadTimer = null; }
+  const btn = document.getElementById('autoReadBtn');
+  if (btn) btn.textContent = '⏱ Auto Read';
+}
+
+// ===================================================
+// LOG
+// ===================================================
+function logEntry(type, hex, desc) {
+  const box = document.getElementById('logBox');
+  const time = new Date().toLocaleTimeString('vi', { hour12: false });
+  const div  = document.createElement('div');
+  div.className = 'log-entry';
+
+  const cls = { tx:'log-tx', rx:'log-rx', err:'log-err', info:'log-info' };
+  const pfx = { tx:'TX', rx:'RX', err:'!!', info:'--' };
+  div.innerHTML =
+    `<span class="log-time">[${time}]</span>` +
+    `<span class="${cls[type] || 'log-info'}">[${pfx[type]||'??'}]</span> ` +
+    (hex  ? `<span class="log-hex">${hex}</span>` : '') +
+    (desc ? `<span class="log-desc">${desc}</span>` : '');
+  box.appendChild(div);
+  box.scrollTop = box.scrollHeight;
+
+  while (box.children.length > 200) box.removeChild(box.firstChild);
+}
+
+function clearLog() {
+  document.getElementById('logBox').innerHTML = '<div class="log-entry log-info">— Log đã xóa —</div>';
+}
+
+// ===================================================
+// KEYBOARD SHORTCUTS
+// ===================================================
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT') return;
+  switch(e.key) {
+    case 'ArrowUp':    case 'w': e.preventDefault(); sendForward(currentSpeed);  break;
+    case 'ArrowDown':  case 's': e.preventDefault(); sendBackward(currentSpeed); break;
+    case ' ':                    e.preventDefault(); sendCoast();                break;
+    case 'h':          case 'H':                     sendHold();                 break;
+    case 'ArrowRight':           e.preventDefault(); rampSpeed(+50);             break;
+    case 'ArrowLeft':            e.preventDefault(); rampSpeed(-50);             break;
+    case 'r':          case 'R':                     sendReadPos();              break;
+  }
+});
+
+// ===================================================
+// MOTOR ID SCAN
+// ===================================================
+function setScanPreset(from, to, btn) {
+  isCustomRange = false;
+  scanPreset = { from, to };
+  document.querySelectorAll('.scan-preset-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  document.getElementById('scanCustomRange').style.display = 'none';
+}
+
+function toggleCustomRange(btn) {
+  isCustomRange = true;
+  document.querySelectorAll('.scan-preset-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  document.getElementById('scanCustomRange').style.display = 'block';
+}
+
+function getScanRange() {
+  if (!isCustomRange) {
+    return { from: scanPreset.from, to: scanPreset.to };
+  }
+  let from = parseInt(document.getElementById('scanFromId').value.trim(), 16);
+  let to = parseInt(document.getElementById('scanToId').value.trim(), 16);
+  if (isNaN(from)) from = 1;
+  if (isNaN(to)) to = 16;
+  from = Math.max(0, Math.min(253, from));
+  to = Math.max(0, Math.min(253, to));
+  if (from > to) {
+    const tmp = from; from = to; to = tmp;
+  }
+  return { from, to };
+}
+
+function clearScanResults() {
+  if (isScanning) stopScan();
+  scannedMotors = [];
+  const list = document.getElementById('scanResultsList');
+  list.innerHTML = '';
+  list.style.display = 'none';
+  document.getElementById('scanProgressWrap').style.display = 'none';
+  document.getElementById('scanClearBtn').style.display = 'none';
+  document.getElementById('scanFoundCount').textContent = '0 tìm thấy';
+}
+
+function stopScan() {
+  isScanning = false;
+  scanResponseHandler = null;
+  const btn = document.getElementById('scanBtn');
+  if (btn) {
+    btn.className = 'scan-btn-start';
+    btn.innerHTML = '⚡ Bắt đầu quét';
+  }
+}
+
+async function toggleScan() {
+  if (isScanning) {
+    stopScan();
+    logEntry('info', '', '⏹ Đã dừng quét motor ID.');
+    return;
+  }
+
+  if (!port || !writer) {
+    alert('Vui lòng kết nối Serial Port trước khi quét ID động cơ!');
+    logEntry('err', '', '⚠️ Chưa kết nối serial port. Hãy bấm "Kết nối Serial Port" trước.');
+    return;
+  }
+
+  // Safety: stop any holding motors
+  endHold();
+
+  const { from, to } = getScanRange();
+  const total = to - from + 1;
+  const fromHex = from.toString(16).toUpperCase().padStart(2, '0');
+  const toHex = to.toString(16).toUpperCase().padStart(2, '0');
+
+  // Pause auto read if running
+  const wasAutoReading = (autoReadTimer !== null);
+  if (wasAutoReading) stopAutoRead();
+
+  isScanning = true;
+  scannedMotors = [];
+
+  const list = document.getElementById('scanResultsList');
+  list.innerHTML = '';
+  list.style.display = 'flex';
+  document.getElementById('scanClearBtn').style.display = 'inline-block';
+  document.getElementById('scanFoundCount').textContent = '0 tìm thấy';
+
+  const pWrap = document.getElementById('scanProgressWrap');
+  const pBar = document.getElementById('scanProgressBar');
+  const pStatus = document.getElementById('scanStatusText');
+  const pPct = document.getElementById('scanPctText');
+  pWrap.style.display = 'block';
+  pBar.style.width = '0%';
+  pPct.textContent = '0%';
+  pStatus.textContent = `Bắt đầu quét 0x${fromHex}..0x${toHex}...`;
+
+  const btn = document.getElementById('scanBtn');
+  btn.className = 'scan-btn-stop';
+  btn.innerHTML = '⏹ Dừng quét';
+
+  logEntry('info', '', `🔍 Bắt đầu quét Motor ID từ 0x${fromHex} đến 0x${toHex} (${total} IDs)...`);
+
+  try {
+    for (let curId = from; curId <= to; curId++) {
+      if (!isScanning || !writer) break;
+
+      const curHex = curId.toString(16).toUpperCase().padStart(2, '0');
+      const idx = curId - from + 1;
+      const pct = Math.round((idx / total) * 100);
+
+      pBar.style.width = pct + '%';
+      pPct.textContent = pct + '%';
+      pStatus.textContent = `Đang quét: 0x${curHex} (${idx}/${total})...`;
+
+      let pingDone = false;
+      let pingResult = null;
+
+      scanResponseHandler = (rxId, rxErr, rxPkt) => {
+        if (rxId === curId) {
+          pingDone = true;
+          pingResult = { id: rxId, err: rxErr, pkt: rxPkt };
+        }
+      };
+
+      // Send silent ping
+      await sendPacket(buildPing(curId), `PING ID=0x${curHex}`, true);
+
+      // Wait for response up to 30ms
+      const t0 = Date.now();
+      while (!pingDone && (Date.now() - t0 < 30)) {
+        await sleep(4);
+        if (!isScanning) break;
+      }
+
+      if (pingResult) {
+        // Motor found! Try reading current position for richer info
+        let posVal = null, posDeg = null;
+        let readDone = false;
+
+        scanResponseHandler = (rxId, rxErr, rxPkt) => {
+          if (rxId === curId && rxPkt.length >= 10) {
+            if (rxPkt[8] !== undefined && rxPkt[9] !== undefined) {
+              posVal = rxPkt[8] + rxPkt[9] * 256;
+              posDeg = (posVal * 360 / 1024).toFixed(1);
+            }
+            readDone = true;
+          }
+        };
+
+        await sendPacket(buildReadPos(curId), `READ Pos ID=0x${curHex}`, true);
+        const t1 = Date.now();
+        while (!readDone && (Date.now() - t1 < 30)) {
+          await sleep(4);
+          if (!isScanning) break;
+        }
+
+        const motorObj = {
+          id: curId,
+          hexId: curHex,
+          err: pingResult.err,
+          pos: posVal,
+          deg: posDeg
+        };
+        scannedMotors.push(motorObj);
+        addMotorToScanUI(motorObj);
+        document.getElementById('scanFoundCount').textContent = `${scannedMotors.length} tìm thấy`;
+
+        const degInfo = posDeg !== null ? `, Góc: ${posDeg}°` : '';
+        const errInfo = pingResult.err === 0 ? 'OK' : `Err: 0x${pingResult.err.toString(16).toUpperCase().padStart(2,'0')}`;
+        logEntry('rx', '', `✨ [SCAN] Tìm thấy Motor ID: 0x${curHex} (#${curId}) [${errInfo}${degInfo}]`);
+      }
+
+      await sleep(3);
+    }
+  } finally {
+    isScanning = false;
+    scanResponseHandler = null;
+    btn.className = 'scan-btn-start';
+    btn.innerHTML = '⚡ Bắt đầu quét';
+    pBar.style.width = '100%';
+    pPct.textContent = '100%';
+
+    if (scannedMotors.length === 0) {
+      pStatus.textContent = 'Không tìm thấy động cơ nào';
+      list.innerHTML = `
+        <div style="font-size:11px;color:var(--orange);padding:8px;text-align:center;background:rgba(245,158,11,0.06);border:1px dashed rgba(245,158,11,0.3);border-radius:8px">
+          ⚠️ Không tìm thấy động cơ nào trong dải 0x${fromHex}..0x${toHex}.<br>
+          <span style="color:var(--text-dim);font-size:10px;display:block;margin-top:3px">
+            Kiểm tra nguồn 12V-24V, dây tín hiệu UART và bridge ESP32.
+          </span>
+        </div>
+      `;
+      logEntry('info', '', `⚠️ Quét hoàn tất: Không tìm thấy động cơ nào trong dải 0x${fromHex}..0x${toHex}.`);
+    } else {
+      pStatus.textContent = `Xong! Tìm thấy ${scannedMotors.length} động cơ`;
+      logEntry('info', '', `🏁 Quét hoàn tất: Tìm thấy ${scannedMotors.length} động cơ trên bus.`);
+    }
+
+    if (wasAutoReading) {
+      toggleAutoRead();
+    }
+  }
+}
+
+function addMotorToScanUI(motor) {
+  const list = document.getElementById('scanResultsList');
+  list.style.display = 'flex';
+  document.getElementById('scanClearBtn').style.display = 'inline-block';
+
+  const curId = getMotorId();
+  const isActive = (motor.id === curId);
+  const errDesc = motor.err === 0 ? 'OK' : `0x${motor.err.toString(16).toUpperCase().padStart(2,'0')}`;
+  const posBadge = motor.deg !== null
+    ? `<span style="font-family:var(--mono);font-size:10px;color:var(--cyan);background:rgba(6,182,212,0.12);padding:1px 5px;border-radius:4px" title="Góc hiện tại">${motor.deg}°</span>`
+    : '';
+
+  const item = document.createElement('div');
+  item.className = 'motor-chip' + (isActive ? ' current-active' : '');
+  item.setAttribute('data-id', motor.id);
+  item.style.cursor = 'pointer';
+  item.title = `Bấm để chọn điều khiển Motor ID 0x${motor.hexId}`;
+
+  item.innerHTML = `
+    <div style="display:flex;align-items:center;gap:6px">
+      <span class="status-dot ${motor.err === 0 ? 'connected' : ''}" style="width:7px;height:7px;${motor.err !== 0 ? 'background:var(--orange)' : ''}"></span>
+      <span style="font-family:var(--mono);font-weight:700;color:var(--text);font-size:12px">0x${motor.hexId}</span>
+      <span style="color:var(--text-dim);font-size:10px;font-family:var(--mono)">(#${motor.id})</span>
+      ${posBadge}
+      <span style="font-size:10px;color:${motor.err === 0 ? 'var(--green)' : 'var(--orange)'}">[${errDesc}]</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:4px">
+      <span class="chip-active-badge badge" style="display:${isActive ? 'inline-flex' : 'none'};padding:2px 6px;font-size:9px;color:var(--green);border-color:rgba(34,197,94,0.3);background:rgba(34,197,94,0.15)">
+        ● Đang chọn
+      </span>
+      <button type="button" class="chip-action-btn conn-btn" onclick="event.stopPropagation(); selectScannedMotor(${motor.id})" style="display:${isActive ? 'none' : 'inline-block'};padding:3px 8px;font-size:10px;width:auto;background:rgba(6,182,212,0.15);color:var(--cyan);border:1px solid rgba(6,182,212,0.35);font-weight:600">
+        Chọn
+      </button>
+      <button type="button" class="conn-btn" onclick="event.stopPropagation(); prepChangeId(${motor.id})" title="Đổi ID cho motor này" style="padding:3px 6px;font-size:10px;width:auto;background:rgba(168,85,247,0.12);color:var(--purple);border:1px solid rgba(168,85,247,0.3)">
+        ⚙️
+      </button>
+    </div>
+  `;
+
+  item.addEventListener('click', (e) => {
+    if (e.target.tagName === 'BUTTON') return;
+    selectScannedMotor(motor.id);
+  });
+
+  list.appendChild(item);
+}
+
+function selectScannedMotor(id) {
+  const hexId = id.toString(16).toUpperCase().padStart(2, '0');
+  document.getElementById('motorId').value = hexId;
+  motorId = id;
+  positionModeActive = null;
+  updateActiveMotorChips();
+  logEntry('info', '', `👉 Đã chọn điều khiển Motor ID 0x${hexId} (#${id})`);
+  // Read position of selected motor to immediately refresh position gauge
+  sendReadPos();
+}
+
+function prepChangeId(id) {
+  selectScannedMotor(id);
+  const newIdInput = document.getElementById('newMotorId');
+  if (newIdInput) {
+    newIdInput.focus();
+    newIdInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+}
+
+function updateActiveMotorChips() {
+  const curId = getMotorId();
+  const chips = document.querySelectorAll('.motor-chip');
+  chips.forEach(chip => {
+    const chipId = parseInt(chip.getAttribute('data-id'), 10);
+    const btn = chip.querySelector('.chip-action-btn');
+    const badge = chip.querySelector('.chip-active-badge');
+    if (chipId === curId) {
+      chip.classList.add('current-active');
+      if (btn) btn.style.display = 'none';
+      if (badge) badge.style.display = 'inline-flex';
+    } else {
+      chip.classList.remove('current-active');
+      if (btn) btn.style.display = 'inline-block';
+      if (badge) badge.style.display = 'none';
+    }
+  });
+}
+
+// ===================================================
+// INIT
+// ===================================================
+window.addEventListener('load', () => {
+  if (!('serial' in navigator))
+    document.getElementById('noSerial').style.display = 'block';
+  onSpeedChange(200);
+  setGoalUI(512);
+  onPosSpeedChange(100);
+  setMode('stop');
+  document.getElementById('motorId').addEventListener('input', updateActiveMotorChips);
+  logEntry('info', '⌨️  Phím tắt: ↑↓ Tiến/Lùi | Space DỪNG | H HOLD | ←→ Tốc độ | R Đọc vị trí');
+  logEntry('info', '🎯 Điều khiển góc: dùng thẻ "Position mode" (reg 0x11 = 2, 1024 bước = 360°)');
+  logEntry('info', '🔍 Quét ID: Bấm "Bắt đầu quét" trong khối Quét ID để dò tìm động cơ trên bus');
+});
+</script>
+</body>
+</html>
